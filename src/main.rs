@@ -193,7 +193,7 @@ fn main() -> Result<()> {
         bail!("no public library targets found");
     }
 
-    let symbols_dir = generate_symbol_graphs(&pkg_path, &cli.min_access_level)?;
+    let symbols_dir = generate_symbol_graphs(&pkg_path, &library_targets, &cli.min_access_level)?;
 
     let mut modules = Vec::new();
     let mut sorted_targets = library_targets.clone();
@@ -270,7 +270,11 @@ fn library_target_names(desc: &PackageDescription) -> Vec<String> {
         .collect()
 }
 
-fn generate_symbol_graphs(pkg_path: &Path, min_access_level: &str) -> Result<PathBuf> {
+fn generate_symbol_graphs(
+    pkg_path: &Path,
+    library_targets: &[String],
+    min_access_level: &str,
+) -> Result<PathBuf> {
     let out_dir = pkg_path.join(".build/swift-api-symbols");
     let _ = fs::remove_dir_all(&out_dir);
     fs::create_dir_all(&out_dir)?;
@@ -284,29 +288,47 @@ fn generate_symbol_graphs(pkg_path: &Path, min_access_level: &str) -> Result<Pat
         .current_dir(pkg_path)
         .output()
         .context("running `swift package dump-symbol-graph`")?;
+    // `swift package dump-symbol-graph` also tries to extract test targets,
+    // which on fresh CI runners can fail with "Couldn't load module". Treat a
+    // non-zero exit as non-fatal if every library target we care about did
+    // get a .symbols.json file written.
+    let stderr = String::from_utf8_lossy(&out.stderr);
     if !out.status.success() {
-        bail!(
-            "`swift package dump-symbol-graph` failed:\n{}",
-            String::from_utf8_lossy(&out.stderr)
+        eprintln!(
+            "warning: `swift package dump-symbol-graph` exited with a non-zero status. \
+             Checking whether library targets were still emitted.\n\n{}",
+            stderr
         );
     }
 
     let build_dir = pkg_path.join(".build");
-    let mut found = 0usize;
+    let mut found_modules: std::collections::BTreeSet<String> = Default::default();
     for entry in walk(&build_dir) {
-        let is_symbols = entry
-            .file_name()
-            .and_then(|s| s.to_str())
-            .map(|n| n.ends_with(".symbols.json"))
-            .unwrap_or(false);
+        let file_name = entry.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        let is_symbols = file_name.ends_with(".symbols.json");
         let under_symbolgraph = entry.components().any(|c| c.as_os_str() == "symbolgraph");
         if is_symbols && under_symbolgraph {
-            fs::copy(&entry, out_dir.join(entry.file_name().unwrap()))?;
-            found += 1;
+            fs::copy(&entry, out_dir.join(file_name))?;
+            let stem = file_name.trim_end_matches(".symbols.json");
+            let module = stem.split('@').next().unwrap_or(stem);
+            found_modules.insert(module.to_string());
         }
     }
-    if found == 0 {
-        bail!("no .symbols.json files were produced");
+
+    let missing: Vec<&String> = library_targets
+        .iter()
+        .filter(|t| !found_modules.contains(*t))
+        .collect();
+    if !missing.is_empty() {
+        bail!(
+            "`swift package dump-symbol-graph` did not emit symbol graphs for: {}\n\n{}",
+            missing
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            stderr
+        );
     }
 
     Ok(out_dir)

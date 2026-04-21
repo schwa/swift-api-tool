@@ -1,6 +1,6 @@
 [package]
 name = "swift-api-tool"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Jonathan Wight <jwight@mac.com>"]
 description = "Extract the public API surface of a Swift package into a single Markdown, YAML, or HTML file."
