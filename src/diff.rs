@@ -55,10 +55,8 @@ pub fn run_diff(args: &DiffArgs) -> Result<ExitCode> {
 }
 
 fn load_model(path: &std::path::Path) -> Result<PackageModel> {
-    let text = fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
-    serde_yaml::from_str(&text)
-        .with_context(|| format!("parsing YAML at {}", path.display()))
+    let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    serde_yaml::from_str(&text).with_context(|| format!("parsing YAML at {}", path.display()))
 }
 
 // --- Report types ---
@@ -160,7 +158,11 @@ pub fn diff_packages(old: &PackageModel, new: &PackageModel) -> DiffReport {
     let new_by_name: BTreeMap<&str, &ModuleModel> =
         new.modules.iter().map(|m| (m.name.as_str(), m)).collect();
 
-    let mut all: Vec<&str> = old_by_name.keys().chain(new_by_name.keys()).copied().collect();
+    let mut all: Vec<&str> = old_by_name
+        .keys()
+        .chain(new_by_name.keys())
+        .copied()
+        .collect();
     all.sort();
     all.dedup();
 
@@ -221,10 +223,14 @@ fn module_as(m: &ModuleModel, status: NodeStatus) -> ModuleDiff {
 }
 
 fn diff_extensions(old: &[ExtensionGroup], new: &[ExtensionGroup]) -> Vec<ExtensionDiff> {
-    let old_by: BTreeMap<&str, &ExtensionGroup> =
-        old.iter().map(|e| (e.extended_module.as_str(), e)).collect();
-    let new_by: BTreeMap<&str, &ExtensionGroup> =
-        new.iter().map(|e| (e.extended_module.as_str(), e)).collect();
+    let old_by: BTreeMap<&str, &ExtensionGroup> = old
+        .iter()
+        .map(|e| (e.extended_module.as_str(), e))
+        .collect();
+    let new_by: BTreeMap<&str, &ExtensionGroup> = new
+        .iter()
+        .map(|e| (e.extended_module.as_str(), e))
+        .collect();
 
     let mut names: Vec<&str> = old_by.keys().chain(new_by.keys()).copied().collect();
     names.sort();
@@ -274,8 +280,7 @@ fn diff_symbols(old: &[SymbolNode], new: &[SymbolNode]) -> Vec<SymbolDiff> {
     let new_keyed = key_symbols(new);
 
     let mut out = Vec::new();
-    let mut keys: Vec<&String> =
-        old_keyed.keys().chain(new_keyed.keys()).collect();
+    let mut keys: Vec<&String> = old_keyed.keys().chain(new_keyed.keys()).collect();
     keys.sort();
     keys.dedup();
 
@@ -649,8 +654,7 @@ modules:
     #[test]
     fn detects_added_and_removed() {
         let a = pkg(BASE);
-        let b = pkg(
-            r#"
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
@@ -660,8 +664,7 @@ modules:
         members:
           - decl: "public func bar()"
           - decl: "public func baz()"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         assert!(!r.is_empty());
         let (added, removed, changed) = count(&r);
@@ -672,8 +675,7 @@ modules:
     #[test]
     fn additive_only_is_not_breaking() {
         let a = pkg(BASE);
-        let b = pkg(
-            r#"
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
@@ -685,8 +687,7 @@ modules:
           - decl: "public func baz()"
       - decl: "public func shaderScope(_ s: String)"
       - decl: "public struct NewType"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         assert!(!r.is_empty());
         let (added, removed, changed) = count(&r);
@@ -698,26 +699,22 @@ modules:
     fn modifier_only_change_is_changed_not_removed_added() {
         // Adding @Sendable to a closure parameter changes the decl but the
         // identity key (first non-attribute line) is the same.
-        let a = pkg(
-            r#"
+        let a = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: Demo
     symbols:
       - decl: "public func onCommandBufferScheduled(_ cb: () -> Void)"
-"#,
-        );
-        let b = pkg(
-            r#"
+"#);
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: Demo
     symbols:
       - decl: "public func onCommandBufferScheduled(_ cb: @Sendable () -> Void)"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         let (added, removed, changed) = count(&r);
         // identity_key uses the full first line so this will actually be
@@ -732,26 +729,22 @@ modules:
     fn access_level_change_is_changed() {
         // identity_key strips a leading `public `/`open `/`package ` so a
         // pure access-level flip pairs the same symbol.
-        let a = pkg(
-            r#"
+        let a = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: Demo
     symbols:
       - decl: "public func foo()"
-"#,
-        );
-        let b = pkg(
-            r#"
+"#);
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: Demo
     symbols:
       - decl: "open func foo()"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         let (added, removed, changed) = count(&r);
         assert_eq!((added, removed, changed), (0, 0, 1));
@@ -759,24 +752,20 @@ modules:
 
     #[test]
     fn module_added_and_removed() {
-        let a = pkg(
-            r#"
+        let a = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: A
     symbols: [{decl: "public struct X"}]
-"#,
-        );
-        let b = pkg(
-            r#"
+"#);
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: B
     symbols: [{decl: "public struct Y"}]
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         assert!(r.has_breaking());
         assert_eq!(r.modules.len(), 2);
@@ -867,8 +856,7 @@ modules:
 
     #[test]
     fn removing_one_of_sync_async_overload_pair_is_clean() {
-        let old = pkg(
-            r#"
+        let old = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -876,18 +864,15 @@ modules:
     symbols:
       - decl: "public func foo()"
       - decl: "public func foo() async"
-"#,
-        );
-        let new = pkg(
-            r#"
+"#);
+        let new = pkg(r#"
 package: T
 access_level: public
 modules:
   - name: T
     symbols:
       - decl: "public func foo() async"
-"#,
-        );
+"#);
         let r = diff_packages(&old, &new);
         // One overload removed, the other untouched. Must not look like a Change.
         assert_eq!(count(&r), (0, 1, 0));
@@ -910,8 +895,7 @@ modules:
     fn attribute_addition_pairs_as_changed() {
         // `@MainActor public func foo()` vs `public func foo()` — identity
         // key skips leading attribute-only lines.
-        let a = pkg(
-            r#"
+        let a = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -920,10 +904,8 @@ modules:
       - decl: |
           @MainActor
           public func foo()
-"#,
-        );
-        let b = pkg(
-            r#"
+"#);
+        let b = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -931,8 +913,7 @@ modules:
     symbols:
       - decl: |
           public func foo()
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         assert_eq!(count(&r), (0, 0, 1));
     }
@@ -941,8 +922,7 @@ modules:
 
     #[test]
     fn nested_member_changes_propagate() {
-        let a = pkg(
-            r#"
+        let a = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -953,10 +933,8 @@ modules:
           - decl: "public struct Inner"
             members:
               - decl: "public func leaf()"
-"#,
-        );
-        let b = pkg(
-            r#"
+"#);
+        let b = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -967,8 +945,7 @@ modules:
           - decl: "public struct Inner"
             members:
               - decl: "public func leaf() throws"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         assert_eq!(count(&r), (1, 1, 0));
         assert!(r.has_breaking());
@@ -984,17 +961,14 @@ modules:
 
     #[test]
     fn extension_group_added() {
-        let a = pkg(
-            r#"
+        let a = pkg(r#"
 package: T
 access_level: public
 modules:
   - name: T
     symbols: []
-"#,
-        );
-        let b = pkg(
-            r#"
+"#);
+        let b = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -1005,8 +979,7 @@ modules:
           - decl: "extension Array"
             members:
               - decl: "public func shuffled2() -> Array"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         assert!(!r.is_empty());
         assert!(!r.has_breaking());
@@ -1018,8 +991,7 @@ modules:
 
     #[test]
     fn extension_member_change_inside_existing_group() {
-        let a = pkg(
-            r#"
+        let a = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -1030,10 +1002,8 @@ modules:
           - decl: "extension Array"
             members:
               - decl: "public func old()"
-"#,
-        );
-        let b = pkg(
-            r#"
+"#);
+        let b = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -1044,8 +1014,7 @@ modules:
           - decl: "extension Array"
             members:
               - decl: "public func new()"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         assert_eq!(count(&r), (1, 1, 0));
     }
@@ -1054,8 +1023,7 @@ modules:
 
     #[test]
     fn overloads_distinguished_by_param_labels() {
-        let a = pkg(
-            r#"
+        let a = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -1063,10 +1031,8 @@ modules:
     symbols:
       - decl: "public func foo(_ x: Int)"
       - decl: "public func foo(_ x: String)"
-"#,
-        );
-        let b = pkg(
-            r#"
+"#);
+        let b = pkg(r#"
 package: T
 access_level: public
 modules:
@@ -1074,8 +1040,7 @@ modules:
     symbols:
       - decl: "public func foo(_ x: String)"
       - decl: "public func foo(_ x: Double)"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         // foo(Int) removed, foo(Double) added, foo(String) unchanged.
         assert_eq!(count(&r), (1, 1, 0));
@@ -1086,8 +1051,7 @@ modules:
     #[test]
     fn render_markdown_contains_markers_and_summary() {
         let a = pkg(BASE);
-        let b = pkg(
-            r#"
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
@@ -1097,8 +1061,7 @@ modules:
         members:
           - decl: "public func bar()"
           - decl: "public func baz()"
-"#,
-        );
+"#);
         let md = render_markdown(&diff_packages(&a, &b));
         assert!(md.contains("**Added:** 1"));
         assert!(md.contains("**Removed:** 1"));
@@ -1110,17 +1073,18 @@ modules:
     #[test]
     fn markdown_has_no_ansi_escapes() {
         let a = pkg(BASE);
-        let b = pkg(
-            r#"
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: Demo
     symbols: []
-"#,
-        );
+"#);
         let md = render_markdown(&diff_packages(&a, &b));
-        assert!(!md.contains('\x1b'), "markdown must not contain ANSI escapes");
+        assert!(
+            !md.contains('\x1b'),
+            "markdown must not contain ANSI escapes"
+        );
     }
 
     // --- TTY / color overrides.
@@ -1128,15 +1092,13 @@ modules:
     #[test]
     fn no_color_produces_no_ansi() {
         let a = pkg(BASE);
-        let b = pkg(
-            r#"
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: Demo
     symbols: []
-"#,
-        );
+"#);
         let txt = render_text(&diff_packages(&a, &b), false);
         assert!(!txt.contains('\x1b'));
     }
@@ -1144,15 +1106,13 @@ modules:
     #[test]
     fn color_produces_ansi_escapes() {
         let a = pkg(BASE);
-        let b = pkg(
-            r#"
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
   - name: Demo
     symbols: []
-"#,
-        );
+"#);
         let txt = render_text(&diff_packages(&a, &b), true);
         assert!(txt.contains('\x1b'));
     }
@@ -1179,7 +1139,10 @@ modules:
     fn identity_key_keeps_throws_async() {
         // Critical: effect modifiers MUST stay in the identity key so that
         // foo() and foo() throws / foo() async never collapse together.
-        assert_ne!(identity_key("func foo()"), identity_key("func foo() throws"));
+        assert_ne!(
+            identity_key("func foo()"),
+            identity_key("func foo() throws")
+        );
         assert_ne!(identity_key("func foo()"), identity_key("func foo() async"));
         assert_ne!(
             identity_key("func foo() throws"),
@@ -1198,8 +1161,7 @@ modules:
     #[test]
     fn render_text_contains_markers() {
         let a = pkg(BASE);
-        let b = pkg(
-            r#"
+        let b = pkg(r#"
 package: Demo
 access_level: public
 modules:
@@ -1209,8 +1171,7 @@ modules:
         members:
           - decl: "public func bar()"
           - decl: "public func baz()"
-"#,
-        );
+"#);
         let r = diff_packages(&a, &b);
         let txt = render_text(&r, false);
         assert!(txt.contains("+ public func baz()"));
