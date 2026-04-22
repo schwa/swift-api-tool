@@ -380,12 +380,10 @@ fn identity_key(decl: &str) -> String {
     }
     let line = first.unwrap_or_else(|| decl.trim());
     // Strip `public`/`open`/`package` access prefix since the access level
-    // can shift between snapshots of the same symbol.
-    let stripped = line
-        .strip_prefix("public ")
-        .or_else(|| line.strip_prefix("open "))
-        .or_else(|| line.strip_prefix("package "))
-        .unwrap_or(line);
+    // can shift between snapshots of the same symbol. Match the keyword
+    // followed by any amount of whitespace so we don't leave a stray space
+    // in the key when the input uses tabs or multiple spaces.
+    let stripped = strip_access_prefix(line);
     // Collapse runs of whitespace to a single space.
     let mut out = String::with_capacity(stripped.len());
     let mut prev_ws = false;
@@ -401,6 +399,17 @@ fn identity_key(decl: &str) -> String {
         }
     }
     out
+}
+
+fn strip_access_prefix(line: &str) -> &str {
+    for kw in ["public", "open", "package"] {
+        if let Some(rest) = line.strip_prefix(kw) {
+            if rest.starts_with(char::is_whitespace) {
+                return rest.trim_start();
+            }
+        }
+    }
+    line
 }
 
 fn symbol_as(s: &SymbolNode, status: NodeStatus) -> SymbolDiff {
@@ -771,6 +780,419 @@ modules:
         let r = diff_packages(&a, &b);
         assert!(r.has_breaking());
         assert_eq!(r.modules.len(), 2);
+    }
+
+    // --- Effect modifier changes: per project policy, `foo()`,
+    // `foo() throws`, `foo() async`, `foo() async throws`, `foo() rethrows`,
+    // and `foo() throws(MyError)` are all DIFFERENT functions. A change
+    // between any two of them must render as one removal + one addition,
+    // never as a single "Changed" entry.
+
+    fn effect_modifier_case(old_decl: &str, new_decl: &str) -> (usize, usize, usize) {
+        let a = pkg(&format!(
+            "package: T\naccess_level: public\nmodules:\n  - name: T\n    symbols:\n      - decl: \"{}\"\n",
+            old_decl
+        ));
+        let b = pkg(&format!(
+            "package: T\naccess_level: public\nmodules:\n  - name: T\n    symbols:\n      - decl: \"{}\"\n",
+            new_decl
+        ));
+        count(&diff_packages(&a, &b))
+    }
+
+    #[test]
+    fn adding_throws_is_remove_plus_add() {
+        assert_eq!(
+            effect_modifier_case("public func foo()", "public func foo() throws"),
+            (1, 1, 0)
+        );
+    }
+
+    #[test]
+    fn adding_async_is_remove_plus_add() {
+        assert_eq!(
+            effect_modifier_case("public func foo()", "public func foo() async"),
+            (1, 1, 0)
+        );
+    }
+
+    #[test]
+    fn throws_to_async_throws_is_remove_plus_add() {
+        assert_eq!(
+            effect_modifier_case(
+                "public func dump() throws -> String",
+                "public func dump() async throws -> String"
+            ),
+            (1, 1, 0)
+        );
+    }
+
+    #[test]
+    fn throws_to_rethrows_is_remove_plus_add() {
+        assert_eq!(
+            effect_modifier_case(
+                "public func map<T>(_ f: (Element) throws -> T) throws -> [T]",
+                "public func map<T>(_ f: (Element) throws -> T) rethrows -> [T]"
+            ),
+            (1, 1, 0)
+        );
+    }
+
+    #[test]
+    fn throws_to_typed_throws_is_remove_plus_add() {
+        assert_eq!(
+            effect_modifier_case(
+                "public func foo() throws",
+                "public func foo() throws(MyError)"
+            ),
+            (1, 1, 0)
+        );
+    }
+
+    #[test]
+    fn sync_and_async_overloads_coexist() {
+        // If both overloads exist on both sides, nothing should diff.
+        let yaml = r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: "public func foo()"
+      - decl: "public func foo() async"
+"#;
+        let r = diff_packages(&pkg(yaml), &pkg(yaml));
+        assert!(r.is_empty());
+    }
+
+    #[test]
+    fn removing_one_of_sync_async_overload_pair_is_clean() {
+        let old = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: "public func foo()"
+      - decl: "public func foo() async"
+"#,
+        );
+        let new = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: "public func foo() async"
+"#,
+        );
+        let r = diff_packages(&old, &new);
+        // One overload removed, the other untouched. Must not look like a Change.
+        assert_eq!(count(&r), (0, 1, 0));
+        assert!(r.has_breaking());
+    }
+
+    #[test]
+    fn effect_change_under_additive_mode_is_breaking() {
+        // foo() -> foo() throws must block --allow-additive since it's a
+        // removal of the sync variant plus an addition of the throwing one.
+        let old = pkg("package: T\naccess_level: public\nmodules:\n  - name: T\n    symbols: [{decl: \"public func foo()\"}]\n");
+        let new = pkg("package: T\naccess_level: public\nmodules:\n  - name: T\n    symbols: [{decl: \"public func foo() throws\"}]\n");
+        let r = diff_packages(&old, &new);
+        assert!(r.has_breaking());
+    }
+
+    // --- Non-effect-modifier cases that SHOULD pair.
+
+    #[test]
+    fn attribute_addition_pairs_as_changed() {
+        // `@MainActor public func foo()` vs `public func foo()` — identity
+        // key skips leading attribute-only lines.
+        let a = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: |
+          @MainActor
+          public func foo()
+"#,
+        );
+        let b = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: |
+          public func foo()
+"#,
+        );
+        let r = diff_packages(&a, &b);
+        assert_eq!(count(&r), (0, 0, 1));
+    }
+
+    // --- Nested members.
+
+    #[test]
+    fn nested_member_changes_propagate() {
+        let a = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: "public struct Outer"
+        members:
+          - decl: "public struct Inner"
+            members:
+              - decl: "public func leaf()"
+"#,
+        );
+        let b = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: "public struct Outer"
+        members:
+          - decl: "public struct Inner"
+            members:
+              - decl: "public func leaf() throws"
+"#,
+        );
+        let r = diff_packages(&a, &b);
+        assert_eq!(count(&r), (1, 1, 0));
+        assert!(r.has_breaking());
+        // Rendered report should contain the nested context.
+        let txt = render_text(&r, false);
+        assert!(txt.contains("public struct Outer"));
+        assert!(txt.contains("public struct Inner"));
+        assert!(txt.contains("- public func leaf()"));
+        assert!(txt.contains("+ public func leaf() throws"));
+    }
+
+    // --- Extension groups.
+
+    #[test]
+    fn extension_group_added() {
+        let a = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols: []
+"#,
+        );
+        let b = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    extensions:
+      - extended_module: Swift
+        symbols:
+          - decl: "extension Array"
+            members:
+              - decl: "public func shuffled2() -> Array"
+"#,
+        );
+        let r = diff_packages(&a, &b);
+        assert!(!r.is_empty());
+        assert!(!r.has_breaking());
+        let (added, removed, changed) = count(&r);
+        assert_eq!(removed, 0);
+        assert_eq!(changed, 0);
+        assert!(added >= 1);
+    }
+
+    #[test]
+    fn extension_member_change_inside_existing_group() {
+        let a = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    extensions:
+      - extended_module: Swift
+        symbols:
+          - decl: "extension Array"
+            members:
+              - decl: "public func old()"
+"#,
+        );
+        let b = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    extensions:
+      - extended_module: Swift
+        symbols:
+          - decl: "extension Array"
+            members:
+              - decl: "public func new()"
+"#,
+        );
+        let r = diff_packages(&a, &b);
+        assert_eq!(count(&r), (1, 1, 0));
+    }
+
+    // --- Overload handling by parameter labels.
+
+    #[test]
+    fn overloads_distinguished_by_param_labels() {
+        let a = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: "public func foo(_ x: Int)"
+      - decl: "public func foo(_ x: String)"
+"#,
+        );
+        let b = pkg(
+            r#"
+package: T
+access_level: public
+modules:
+  - name: T
+    symbols:
+      - decl: "public func foo(_ x: String)"
+      - decl: "public func foo(_ x: Double)"
+"#,
+        );
+        let r = diff_packages(&a, &b);
+        // foo(Int) removed, foo(Double) added, foo(String) unchanged.
+        assert_eq!(count(&r), (1, 1, 0));
+    }
+
+    // --- Markdown output.
+
+    #[test]
+    fn render_markdown_contains_markers_and_summary() {
+        let a = pkg(BASE);
+        let b = pkg(
+            r#"
+package: Demo
+access_level: public
+modules:
+  - name: Demo
+    symbols:
+      - decl: "public struct Foo"
+        members:
+          - decl: "public func bar()"
+          - decl: "public func baz()"
+"#,
+        );
+        let md = render_markdown(&diff_packages(&a, &b));
+        assert!(md.contains("**Added:** 1"));
+        assert!(md.contains("**Removed:** 1"));
+        assert!(md.contains("**Changed:** 0"));
+        assert!(md.contains("➕"));
+        assert!(md.contains("➖"));
+    }
+
+    #[test]
+    fn markdown_has_no_ansi_escapes() {
+        let a = pkg(BASE);
+        let b = pkg(
+            r#"
+package: Demo
+access_level: public
+modules:
+  - name: Demo
+    symbols: []
+"#,
+        );
+        let md = render_markdown(&diff_packages(&a, &b));
+        assert!(!md.contains('\x1b'), "markdown must not contain ANSI escapes");
+    }
+
+    // --- TTY / color overrides.
+
+    #[test]
+    fn no_color_produces_no_ansi() {
+        let a = pkg(BASE);
+        let b = pkg(
+            r#"
+package: Demo
+access_level: public
+modules:
+  - name: Demo
+    symbols: []
+"#,
+        );
+        let txt = render_text(&diff_packages(&a, &b), false);
+        assert!(!txt.contains('\x1b'));
+    }
+
+    #[test]
+    fn color_produces_ansi_escapes() {
+        let a = pkg(BASE);
+        let b = pkg(
+            r#"
+package: Demo
+access_level: public
+modules:
+  - name: Demo
+    symbols: []
+"#,
+        );
+        let txt = render_text(&diff_packages(&a, &b), true);
+        assert!(txt.contains('\x1b'));
+    }
+
+    // --- identity_key sanity.
+
+    #[test]
+    fn identity_key_strips_access_and_collapses_whitespace() {
+        assert_eq!(
+            identity_key("public   func    foo()"),
+            identity_key("func foo()")
+        );
+    }
+
+    #[test]
+    fn identity_key_skips_leading_attribute_lines() {
+        assert_eq!(
+            identity_key("@MainActor\npublic func foo()"),
+            identity_key("public func foo()")
+        );
+    }
+
+    #[test]
+    fn identity_key_keeps_throws_async() {
+        // Critical: effect modifiers MUST stay in the identity key so that
+        // foo() and foo() throws / foo() async never collapse together.
+        assert_ne!(identity_key("func foo()"), identity_key("func foo() throws"));
+        assert_ne!(identity_key("func foo()"), identity_key("func foo() async"));
+        assert_ne!(
+            identity_key("func foo() throws"),
+            identity_key("func foo() async throws")
+        );
+        assert_ne!(
+            identity_key("func foo() throws"),
+            identity_key("func foo() rethrows")
+        );
+        assert_ne!(
+            identity_key("func foo() throws"),
+            identity_key("func foo() throws(MyError)")
+        );
     }
 
     #[test]
