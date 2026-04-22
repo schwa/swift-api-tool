@@ -63,11 +63,23 @@ Commit a `public-api.yaml` snapshot to your repo, then in CI:
 ```yaml
 - run: cargo install swift-api-tool
 - run: swift-api-tool . -o /tmp/public-api.yaml
-- run: diff public-api.yaml /tmp/public-api.yaml
+- run: swift-api-tool diff public-api.yaml /tmp/public-api.yaml
 ```
 
-The `diff` fails the job if the committed snapshot is stale — prompting
-you to either update it or explain the API change.
+The `diff` subcommand parses both snapshots semantically and prints a
+colorized, grouped report of **added / removed / changed** symbols.
+It exits non-zero when there are differences.
+
+Options:
+
+- `--format markdown` — emit a Markdown report (good for PR comments).
+- `--no-color` / `--color` — override the default TTY color detection.
+- `--allow-additive` — exit 0 if the only changes are *additions*;
+  exit non-zero only for removals or signature changes. Useful when you
+  want CI to block breaking changes but allow new public API to land
+  without a snapshot update.
+
+For a plain textual unified diff, `diff -u` still works.
 
 ## License
 

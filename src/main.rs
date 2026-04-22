@@ -1,11 +1,12 @@
 use anyhow::{bail, Context, Result};
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
+mod diff;
 mod html;
 use html::render_html;
 
@@ -13,6 +14,9 @@ use html::render_html;
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     /// Path to the Swift package (directory containing Package.swift).
     #[arg(default_value = ".")]
     package_path: PathBuf,
@@ -34,11 +38,44 @@ struct Cli {
     keep_symbols: bool,
 }
 
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Compare two YAML API snapshots and print a semantic diff.
+    Diff(DiffArgs),
+}
+
+#[derive(Parser, Debug)]
+struct DiffArgs {
+    /// Old (baseline) YAML snapshot.
+    old: PathBuf,
+    /// New YAML snapshot.
+    new: PathBuf,
+    /// Output format for the diff report.
+    #[arg(long, value_enum, default_value_t = DiffFormat::Text)]
+    format: DiffFormat,
+    /// Disable ANSI color output (text format only).
+    #[arg(long)]
+    no_color: bool,
+    /// Force ANSI color output even when stdout is not a TTY.
+    #[arg(long, conflicts_with = "no_color")]
+    color: bool,
+    /// Exit 0 if the only differences are additions; non-zero only on
+    /// removals or signature changes.
+    #[arg(long, alias = "additive-ok", alias = "breaking-only")]
+    allow_additive: bool,
+}
+
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Format {
     Md,
     Yaml,
     Html,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum DiffFormat {
+    Text,
+    Markdown,
 }
 
 // --- `swift package describe` JSON ---
@@ -142,40 +179,55 @@ struct Relationship {
 
 // --- Intermediate tree model (format-independent) ---
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PackageModel {
     pub package: String,
     pub access_level: String,
     pub modules: Vec<ModuleModel>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ModuleModel {
     pub name: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub symbols: Vec<SymbolNode>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extensions: Vec<ExtensionGroup>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ExtensionGroup {
     pub extended_module: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub symbols: Vec<SymbolNode>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SymbolNode {
     pub decl: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub members: Vec<SymbolNode>,
 }
 
 // --- main ---
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("error: {:#}", e);
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
+
+    if let Some(Commands::Diff(args)) = cli.command {
+        return diff::run_diff(&args);
+    }
+
     let pkg_path = cli
         .package_path
         .canonicalize()
@@ -224,7 +276,7 @@ fn main() -> Result<()> {
         eprintln!("symbol graphs kept at {}", symbols_dir.display());
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 fn infer_format(path: &Path) -> Format {
