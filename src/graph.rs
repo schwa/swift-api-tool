@@ -104,8 +104,12 @@ fn render_dot(
         )
         .unwrap();
 
-        let mut target_dependencies = target.target_dependencies.clone();
-        target_dependencies.sort();
+        let mut target_dependencies: Vec<&str> = target
+            .target_dependencies
+            .iter()
+            .map(String::as_str)
+            .collect();
+        target_dependencies.sort_unstable();
         target_dependencies.dedup();
         for dependency in target_dependencies {
             writeln!(
@@ -124,8 +128,12 @@ fn render_dot(
         }
 
         if !skip_product_dependencies {
-            let mut product_dependencies = target.product_dependencies.clone();
-            product_dependencies.sort();
+            let mut product_dependencies: Vec<&str> = target
+                .product_dependencies
+                .iter()
+                .map(String::as_str)
+                .collect();
+            product_dependencies.sort_unstable();
             product_dependencies.dedup();
             for dependency in product_dependencies {
                 writeln!(

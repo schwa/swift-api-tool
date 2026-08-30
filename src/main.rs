@@ -363,18 +363,17 @@ fn extract_model(package_path: &Path, args: &ExtractionArgs) -> Result<PackageMo
     }
 
     let description = describe_package(&pkg_path)?;
-    let library_targets = library_target_names(&description);
+    let mut library_targets = library_target_names(&description);
     if library_targets.is_empty() {
         bail!("no public library targets found");
     }
+    library_targets.sort_unstable();
 
     let symbols_dir = generate_symbol_graphs(&pkg_path, &library_targets, &args.min_access_level)?;
 
     let mut modules = Vec::new();
-    let mut sorted_targets = library_targets.clone();
-    sorted_targets.sort();
     let source_prefix = format!("file://{}/", pkg_path.display());
-    for module in &sorted_targets {
+    for module in &library_targets {
         modules.push(build_module_model(module, &symbols_dir, &source_prefix)?);
     }
 

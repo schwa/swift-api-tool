@@ -371,15 +371,18 @@ There is no way to write output as a directory hierarchy, such as one file per m
 ## 7: Needless Vec clones for sort and dedup
 
 +++
-status: open
+status: closed
 priority: low
 kind: enhancement
 labels: effort:xs
 created: 2026-08-30T15:23:26Z
-updated: 2026-08-30T15:28:06Z
+updated: 2026-08-30T15:28:42Z
+closed: 2026-08-30T15:28:42Z
 +++
 
 graph.rs:107 and graph.rs:127 clone whole Vec<String> dependency lists just to sort and dedup them; main.rs:374 clones library_targets just to sort. Borrowed slices or sorting the originals would avoid the allocations. (rust-skills: own-borrow-over-clone)
+
+- `2026-08-30T15:28:42Z`: Sort borrowed &str slices instead of cloning dependency Vecs; sort library_targets once instead of cloning.
 
 ---
 
