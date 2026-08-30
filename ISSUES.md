@@ -458,14 +458,17 @@ main.rs is ~1,270 lines mixing CLI definitions, symbol graph decoding, model bui
 ## 12: Inconsistent infallible-write style between graph.rs and html.rs
 
 +++
-status: open
+status: closed
 priority: low
 kind: task
 labels: effort:xs
 created: 2026-08-30T15:23:27Z
-updated: 2026-08-30T15:28:06Z
+updated: 2026-08-30T15:31:11Z
+closed: 2026-08-30T15:31:11Z
 +++
 
 For infallible write!/writeln! into a String, graph.rs uses .unwrap() while html.rs uses .ok(). One style should be used in both.
+
+- `2026-08-30T15:31:11Z`: graph.rs now uses .ok() for infallible String writes, matching html.rs.
 
 ---

@@ -95,14 +95,14 @@ fn render_dot(
     targets.sort_by(|left, right| left.name.cmp(&right.name));
 
     let mut output = String::new();
-    writeln!(output, "digraph {} {{", quoted(&package.name)).unwrap();
+    writeln!(output, "digraph {} {{", quoted(&package.name)).ok();
     for target in targets {
         writeln!(
             output,
             "    {} [color=black, shape=box];",
             quoted(&target.name)
         )
-        .unwrap();
+        .ok();
 
         let mut target_dependencies: Vec<&str> = target
             .target_dependencies
@@ -117,14 +117,14 @@ fn render_dot(
                 "    {} [color=black, shape=box];",
                 quoted(dependency)
             )
-            .unwrap();
+            .ok();
             writeln!(
                 output,
                 "    {} -> {};",
                 quoted(&target.name),
                 quoted(dependency)
             )
-            .unwrap();
+            .ok();
         }
 
         if !skip_product_dependencies {
@@ -141,14 +141,14 @@ fn render_dot(
                     "    {} [color=blue, shape=box];",
                     quoted(dependency)
                 )
-                .unwrap();
+                .ok();
                 writeln!(
                     output,
                     "    {} -> {};",
                     quoted(&target.name),
                     quoted(dependency)
                 )
-                .unwrap();
+                .ok();
             }
         }
     }
