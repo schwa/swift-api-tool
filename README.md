@@ -42,6 +42,10 @@ swift-api-tool doc . -o docs/public-api.md
 
 # HTML: self-contained browsable file with sidebar nav and filter.
 swift-api-tool doc . -o public-api.html
+
+# Multi-file Markdown mirroring the package's source tree:
+# docs/index.md plus docs/Sources/<Module>/.../<File>.md per source file.
+swift-api-tool doc . --split -o docs/
 ```
 
 ### Package dependency graphs

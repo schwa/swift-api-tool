@@ -352,14 +352,18 @@ Embed the useful behavior from archived `HeaderDocToMarkdown` in `swift-api-tool
 ## 6: Single-file output does not scale to large packages
 
 +++
-status: new
+status: closed
 priority: medium
 kind: enhancement
 created: 2026-08-30T15:07:37Z
+updated: 2026-08-30T15:17:14Z
+closed: 2026-08-30T15:17:14Z
 +++
 
 All output formats write one file. For a large package (e.g. MetalSprockets, ~7,300 lines of Markdown) a single document is hard to navigate, review, and link into.
 
 There is no way to write output as a directory hierarchy, such as one file per module, per type, or per source-file grouping, with an index file linking the pieces. This affects Markdown most, but YAML snapshots and HTML would also benefit from a split layout for very large APIs.
+
+- `2026-08-30T15:17:14Z`: Implemented as doc --split: multi-file Markdown mirroring the package source tree with an index.md.
 
 ---
