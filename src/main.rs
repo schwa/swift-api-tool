@@ -843,25 +843,41 @@ fn render_md(model: &PackageModel) -> String {
 }
 
 fn render_md_symbol(sym: &SymbolNode, depth: usize, out: &mut String) {
+    render_md_decl(
+        &sym.decl,
+        sym.doc.as_deref(),
+        sym.source.as_deref(),
+        depth,
+        out,
+    );
+    for child in &sym.members {
+        render_md_symbol(child, depth + 1, out);
+    }
+}
+
+fn render_md_decl(
+    decl: &str,
+    doc: Option<&str>,
+    source: Option<&str>,
+    depth: usize,
+    out: &mut String,
+) {
     let heading = "#".repeat(depth.min(6));
     // Use first line of declaration as the heading subject.
-    let first_line = sym.decl.lines().next().unwrap_or("");
+    let first_line = decl.lines().next().unwrap_or("");
     out.push_str(&format!("{heading} `{}`\n\n", first_line));
     out.push_str("```swift\n");
-    out.push_str(&sym.decl);
-    if !sym.decl.ends_with('\n') {
+    out.push_str(decl);
+    if !decl.ends_with('\n') {
         out.push('\n');
     }
     out.push_str("```\n\n");
-    if let Some(doc) = &sym.doc {
+    if let Some(doc) = doc {
         out.push_str(doc);
         out.push_str("\n\n");
     }
-    if let Some(source) = &sym.source {
+    if let Some(source) = source {
         out.push_str(&format!("<sub>Defined at `{}`</sub>\n\n", source));
-    }
-    for child in &sym.members {
-        render_md_symbol(child, depth + 1, out);
     }
 }
 
@@ -869,6 +885,28 @@ fn render_md_symbol(sym: &SymbolNode, depth: usize, out: &mut String) {
 
 /// One page per Swift source file, mirroring the package's source tree,
 /// plus an index.md linking everything.
+/// A page entry: either a real symbol or a synthesized extension wrapper
+/// restricted to the members declared in one file.
+enum PageItem<'a> {
+    Symbol(&'a SymbolNode),
+    Wrapper {
+        decl: &'a str,
+        members: Vec<&'a SymbolNode>,
+    },
+}
+
+fn render_page_item(item: &PageItem, depth: usize, out: &mut String) {
+    match item {
+        PageItem::Symbol(symbol) => render_md_symbol(symbol, depth, out),
+        PageItem::Wrapper { decl, members } => {
+            render_md_decl(decl, None, None, depth, out);
+            for member in members {
+                render_md_symbol(member, depth + 1, out);
+            }
+        }
+    }
+}
+
 fn render_md_split(model: &PackageModel) -> Vec<(PathBuf, String)> {
     let mut files: Vec<(PathBuf, String)> = Vec::new();
     let mut index = String::new();
@@ -879,13 +917,16 @@ fn render_md_split(model: &PackageModel) -> Vec<(PathBuf, String)> {
     ));
 
     for module in &model.modules {
-        let mut by_file: BTreeMap<String, Vec<SymbolNode>> = BTreeMap::new();
-        let mut unplaced: Vec<SymbolNode> = Vec::new();
+        let mut by_file: BTreeMap<String, Vec<PageItem>> = BTreeMap::new();
+        let mut unplaced: Vec<PageItem> = Vec::new();
 
         for symbol in &module.symbols {
             match source_file(symbol) {
-                Some(file) => by_file.entry(file).or_default().push(symbol.clone()),
-                None => unplaced.push(symbol.clone()),
+                Some(file) => by_file
+                    .entry(file)
+                    .or_default()
+                    .push(PageItem::Symbol(symbol)),
+                None => unplaced.push(PageItem::Symbol(symbol)),
             }
         }
 
@@ -893,24 +934,24 @@ fn render_md_split(model: &PackageModel) -> Vec<(PathBuf, String)> {
         // their members to the files where the members are declared.
         for ext in &module.extensions {
             for wrapper in &ext.symbols {
-                let mut member_files: BTreeMap<String, Vec<SymbolNode>> = BTreeMap::new();
-                let mut member_unplaced: Vec<SymbolNode> = Vec::new();
+                let mut member_files: BTreeMap<String, Vec<&SymbolNode>> = BTreeMap::new();
+                let mut member_unplaced: Vec<&SymbolNode> = Vec::new();
                 for member in &wrapper.members {
                     match source_file(member) {
-                        Some(file) => member_files.entry(file).or_default().push(member.clone()),
-                        None => member_unplaced.push(member.clone()),
+                        Some(file) => member_files.entry(file).or_default().push(member),
+                        None => member_unplaced.push(member),
                     }
                 }
                 if wrapper.members.is_empty() || !member_unplaced.is_empty() {
-                    unplaced.push(SymbolNode {
+                    unplaced.push(PageItem::Wrapper {
+                        decl: &wrapper.decl,
                         members: member_unplaced,
-                        ..wrapper.clone()
                     });
                 }
                 for (file, members) in member_files {
-                    by_file.entry(file).or_default().push(SymbolNode {
+                    by_file.entry(file).or_default().push(PageItem::Wrapper {
+                        decl: &wrapper.decl,
                         members,
-                        ..wrapper.clone()
                     });
                 }
             }
@@ -921,7 +962,7 @@ fn render_md_split(model: &PackageModel) -> Vec<(PathBuf, String)> {
             index.push_str("_No symbol graph emitted._\n\n");
             continue;
         }
-        for (file, symbols) in &by_file {
+        for (file, items) in &by_file {
             let page_path = md_page_path(file);
             index.push_str(&format!("- [{}]({})\n", file, page_path.display()));
 
@@ -931,16 +972,16 @@ fn render_md_split(model: &PackageModel) -> Vec<(PathBuf, String)> {
                 "_Module `{}` — package `{}`._\n\n",
                 module.name, model.package
             ));
-            for symbol in symbols {
-                render_md_symbol(symbol, 2, &mut page);
+            for item in items {
+                render_page_item(item, 2, &mut page);
             }
             files.push((page_path, page));
         }
         if !by_file.is_empty() {
             index.push('\n');
         }
-        for symbol in &unplaced {
-            render_md_symbol(symbol, 3, &mut index);
+        for item in &unplaced {
+            render_page_item(item, 3, &mut index);
         }
     }
 

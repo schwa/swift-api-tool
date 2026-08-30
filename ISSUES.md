@@ -389,15 +389,18 @@ graph.rs:107 and graph.rs:127 clone whole Vec<String> dependency lists just to s
 ## 8: Split renderer clones every SymbolNode
 
 +++
-status: open
+status: closed
 priority: low
 kind: enhancement
 labels: effort:m
 created: 2026-08-30T15:23:27Z
-updated: 2026-08-30T15:28:06Z
+updated: 2026-08-30T15:30:36Z
+closed: 2026-08-30T15:30:36Z
 +++
 
 render_md_split (main.rs:887-913) clones each top-level SymbolNode, extension member, and wrapper while grouping symbols by source file. Runs once per invocation on small data, so impact is low, but a reference-based design would avoid the copies. (rust-skills: anti-clone-excessive)
+
+- `2026-08-30T15:30:36Z`: Split renderer now groups borrowed &SymbolNode references via a PageItem enum; synthesized wrappers borrow the decl instead of cloning nodes.
 
 ---
 
