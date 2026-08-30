@@ -367,3 +367,93 @@ There is no way to write output as a directory hierarchy, such as one file per m
 - `2026-08-30T15:17:14Z`: Implemented as doc --split: multi-file Markdown mirroring the package source tree with an index.md.
 
 ---
+
+## 7: Needless Vec clones for sort and dedup
+
++++
+status: open
+priority: low
+kind: enhancement
+labels: effort:xs
+created: 2026-08-30T15:23:26Z
+updated: 2026-08-30T15:28:06Z
++++
+
+graph.rs:107 and graph.rs:127 clone whole Vec<String> dependency lists just to sort and dedup them; main.rs:374 clones library_targets just to sort. Borrowed slices or sorting the originals would avoid the allocations. (rust-skills: own-borrow-over-clone)
+
+---
+
+## 8: Split renderer clones every SymbolNode
+
++++
+status: open
+priority: low
+kind: enhancement
+labels: effort:m
+created: 2026-08-30T15:23:27Z
+updated: 2026-08-30T15:28:06Z
++++
+
+render_md_split (main.rs:887-913) clones each top-level SymbolNode, extension member, and wrapper while grouping symbols by source file. Runs once per invocation on small data, so impact is low, but a reference-based design would avoid the copies. (rust-skills: anti-clone-excessive)
+
+---
+
+## 9: walk() collects the entire .build tree before filtering
+
++++
+status: open
+priority: low
+kind: enhancement
+labels: effort:s
+created: 2026-08-30T15:23:27Z
+updated: 2026-08-30T15:28:06Z
++++
+
+walk() (main.rs:505) recursively collects every file under .build into a Vec<PathBuf>; the caller then filters for *.symbols.json. On large build directories this allocates far more than needed. Filtering during traversal or returning an iterator would avoid it. (rust-skills: perf-iter-lazy)
+
+---
+
+## 10: No [lints] configuration in Cargo.toml
+
++++
+status: open
+priority: low
+kind: task
+labels: effort:xs
+created: 2026-08-30T15:23:27Z
+updated: 2026-08-30T15:28:06Z
++++
+
+Clippy is only enforced by convention (running cargo clippy -- -D warnings by hand). There is no [lints] section in Cargo.toml, so builds do not enforce any lint groups. (rust-skills: lint-workspace-lints)
+
+---
+
+## 11: main.rs has grown past 1,200 lines
+
++++
+status: open
+priority: low
+kind: task
+labels: effort:l
+created: 2026-08-30T15:23:27Z
+updated: 2026-08-30T15:28:06Z
++++
+
+main.rs is ~1,270 lines mixing CLI definitions, symbol graph decoding, model building, Markdown rendering, split rendering, and the undocumented-symbol report. Modules like model.rs, render_md.rs, and split.rs would keep files focused. (rust-skills: proj-lib-main-split)
+
+---
+
+## 12: Inconsistent infallible-write style between graph.rs and html.rs
+
++++
+status: open
+priority: low
+kind: task
+labels: effort:xs
+created: 2026-08-30T15:23:27Z
+updated: 2026-08-30T15:28:06Z
++++
+
+For infallible write!/writeln! into a String, graph.rs uses .unwrap() while html.rs uses .ok(). One style should be used in both.
+
+---
