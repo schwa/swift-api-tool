@@ -115,14 +115,14 @@ fn render_dot(
             writeln!(
                 output,
                 "    {} [color=black, shape=box];",
-                quoted(&dependency)
+                quoted(dependency)
             )
             .unwrap();
             writeln!(
                 output,
                 "    {} -> {};",
                 quoted(&target.name),
-                quoted(&dependency)
+                quoted(dependency)
             )
             .unwrap();
         }
@@ -139,14 +139,14 @@ fn render_dot(
                 writeln!(
                     output,
                     "    {} [color=blue, shape=box];",
-                    quoted(&dependency)
+                    quoted(dependency)
                 )
                 .unwrap();
                 writeln!(
                     output,
                     "    {} -> {};",
                     quoted(&target.name),
-                    quoted(&dependency)
+                    quoted(dependency)
                 )
                 .unwrap();
             }
