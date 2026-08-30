@@ -15,6 +15,16 @@ categories = ["command-line-utilities", "development-tools"]
 name = "swift-api-tool"
 path = "src/main.rs"
 
+[lints.rust]
+unexpected_cfgs = "warn"
+
+[lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

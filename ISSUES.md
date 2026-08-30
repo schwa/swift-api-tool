@@ -425,15 +425,18 @@ walk() (main.rs:505) recursively collects every file under .build into a Vec<Pat
 ## 10: No [lints] configuration in Cargo.toml
 
 +++
-status: open
+status: closed
 priority: low
 kind: task
 labels: effort:xs
 created: 2026-08-30T15:23:27Z
-updated: 2026-08-30T15:28:06Z
+updated: 2026-08-30T15:30:51Z
+closed: 2026-08-30T15:30:51Z
 +++
 
 Clippy is only enforced by convention (running cargo clippy -- -D warnings by hand). There is no [lints] section in Cargo.toml, so builds do not enforce any lint groups. (rust-skills: lint-workspace-lints)
+
+- `2026-08-30T15:30:51Z`: Added [lints.rust] and [lints.clippy] to Cargo.toml: deny correctness, warn suspicious/style/complexity/perf, warn unexpected_cfgs.
 
 ---
 
