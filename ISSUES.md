@@ -443,15 +443,18 @@ Clippy is only enforced by convention (running cargo clippy -- -D warnings by ha
 ## 11: main.rs has grown past 1,200 lines
 
 +++
-status: open
+status: closed
 priority: low
 kind: task
 labels: effort:l
 created: 2026-08-30T15:23:27Z
-updated: 2026-08-30T15:28:06Z
+updated: 2026-08-30T15:34:16Z
+closed: 2026-08-30T15:34:16Z
 +++
 
 main.rs is ~1,270 lines mixing CLI definitions, symbol graph decoding, model building, Markdown rendering, split rendering, and the undocumented-symbol report. Modules like model.rs, render_md.rs, and split.rs would keep files focused. (rust-skills: proj-lib-main-split)
+
+- `2026-08-30T15:34:16Z`: main.rs split into model.rs, extract.rs, and render_md.rs; main.rs is now 189 lines of CLI and dispatch. Output verified byte-identical for api and split doc.
 
 ---
 

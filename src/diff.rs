@@ -16,7 +16,8 @@ use std::fs;
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
-use crate::{DiffArgs, DiffFormat, ExtensionGroup, ModuleModel, PackageModel, SymbolNode};
+use crate::model::{ExtensionGroup, ModuleModel, PackageModel, SymbolNode};
+use crate::{DiffArgs, DiffFormat};
 
 pub fn run_diff(args: &DiffArgs) -> Result<ExitCode> {
     let old = load_model(&args.old)?;

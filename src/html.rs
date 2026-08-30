@@ -1,4 +1,4 @@
-use crate::{PackageModel, SymbolNode};
+use crate::model::{PackageModel, SymbolNode};
 use std::fmt::Write;
 
 pub fn render_html(model: &PackageModel) -> String {
