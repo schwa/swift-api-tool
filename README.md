@@ -19,23 +19,29 @@ Requires the Swift toolchain (`swift` on `$PATH`).
 ## Usage
 
 ```sh
-swift-api-tool <package-path> -o public-api.yaml
+# YAML API snapshot (the default subcommand):
+swift-api-tool api <package-path> -o public-api.yaml
+swift-api-tool <package-path>              # same thing
+
+# Documentation as Markdown or HTML:
+swift-api-tool doc <package-path> -o public-api.md
+swift-api-tool doc <package-path> -o public-api.html
 ```
 
-Output format is inferred from the extension (`.md`, `.yaml`/`.yml`,
-`.html`/`.htm`), or forced with `--format md|yaml|html`.
+`api` always writes YAML. `doc` infers Markdown or HTML from the output
+extension (`.md`, `.html`/`.htm`), or takes `--format md|html`.
 
 ### Examples
 
 ```sh
-# Markdown: one big reference doc.
-swift-api-tool . -o docs/public-api.md
+# YAML: compact, nested, great for line-based diffs in CI.
+swift-api-tool api .
 
-# YAML: compact, nested, great for line-based diffs.
-swift-api-tool . -o public-api.yaml
+# Markdown: one big reference doc with doc comments inline.
+swift-api-tool doc . -o docs/public-api.md
 
 # HTML: self-contained browsable file with sidebar nav and filter.
-swift-api-tool . -o public-api.html
+swift-api-tool doc . -o public-api.html
 ```
 
 ### Package dependency graphs
@@ -77,7 +83,7 @@ Commit a `public-api.yaml` snapshot to your repo, then in CI:
 
 ```yaml
 - run: cargo install swift-api-tool
-- run: swift-api-tool . -o /tmp/public-api.yaml
+- run: swift-api-tool api . -o /tmp/public-api.yaml
 - run: swift-api-tool diff public-api.yaml /tmp/public-api.yaml
 ```
 

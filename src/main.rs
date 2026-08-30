@@ -26,8 +26,10 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Extract the public API into a Markdown, YAML, or HTML file.
+    /// Export the public API as a YAML snapshot (for diffing in CI).
     Api(ApiArgs),
+    /// Render public API documentation as Markdown or HTML.
+    Doc(DocArgs),
     /// Compare two YAML API snapshots and print a semantic diff.
     Diff(DiffArgs),
     /// Generate a Swift package dependency graph.
@@ -41,13 +43,33 @@ struct ApiArgs {
     package_path: PathBuf,
 
     /// Output file.
+    #[arg(short, long, default_value = "public-api.yaml")]
+    output: PathBuf,
+
+    #[command(flatten)]
+    extraction: ExtractionArgs,
+}
+
+#[derive(Parser, Debug)]
+struct DocArgs {
+    /// Path to the Swift package (directory containing Package.swift).
+    #[arg(default_value = ".")]
+    package_path: PathBuf,
+
+    /// Output file.
     #[arg(short, long, default_value = "public-api.md")]
     output: PathBuf,
 
     /// Output format. If omitted, inferred from the output file extension.
     #[arg(short, long, value_enum)]
-    format: Option<Format>,
+    format: Option<DocFormat>,
 
+    #[command(flatten)]
+    extraction: ExtractionArgs,
+}
+
+#[derive(Parser, Debug)]
+struct ExtractionArgs {
     /// Minimum access level (public, package, internal, ...).
     #[arg(long, default_value = "public")]
     min_access_level: String,
@@ -83,9 +105,8 @@ struct DiffArgs {
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
-enum Format {
+enum DocFormat {
     Md,
-    Yaml,
     Html,
 }
 
@@ -278,21 +299,43 @@ fn run() -> Result<ExitCode> {
             graph::run(args)?;
             Ok(ExitCode::SUCCESS)
         }
+        Some(Commands::Doc(args)) => run_doc(args),
         None => run_api(&cli.api),
     }
 }
 
 fn run_api(args: &ApiArgs) -> Result<ExitCode> {
-    let pkg_path = args
-        .package_path
+    let model = extract_model(&args.package_path, &args.extraction)?;
+    let rendered = serde_yaml::to_string(&model).context("serializing YAML")?;
+    fs::write(&args.output, rendered)
+        .with_context(|| format!("writing {}", args.output.display()))?;
+    eprintln!("wrote {}", args.output.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+fn run_doc(args: &DocArgs) -> Result<ExitCode> {
+    let format = args
+        .format
+        .unwrap_or_else(|| infer_doc_format(&args.output));
+    let model = extract_model(&args.package_path, &args.extraction)?;
+    let rendered = match format {
+        DocFormat::Md => render_md(&model),
+        DocFormat::Html => render_html(&model),
+    };
+    fs::write(&args.output, rendered)
+        .with_context(|| format!("writing {}", args.output.display()))?;
+    eprintln!("wrote {}", args.output.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+fn extract_model(package_path: &Path, args: &ExtractionArgs) -> Result<PackageModel> {
+    let pkg_path = package_path
         .canonicalize()
-        .with_context(|| format!("resolving {}", args.package_path.display()))?;
+        .with_context(|| format!("resolving {}", package_path.display()))?;
 
     if !pkg_path.join("Package.swift").exists() {
         bail!("no Package.swift at {}", pkg_path.display());
     }
-
-    let format = args.format.unwrap_or_else(|| infer_format(&args.output));
 
     let description = describe_package(&pkg_path)?;
     let library_targets = library_target_names(&description);
@@ -316,16 +359,6 @@ fn run_api(args: &ApiArgs) -> Result<ExitCode> {
         modules,
     };
 
-    let rendered = match format {
-        Format::Md => render_md(&model),
-        Format::Yaml => serde_yaml::to_string(&model).context("serializing YAML")?,
-        Format::Html => render_html(&model),
-    };
-
-    fs::write(&args.output, rendered)
-        .with_context(|| format!("writing {}", args.output.display()))?;
-    eprintln!("wrote {}", args.output.display());
-
     if args.report_undocumented {
         report_undocumented(&model);
     }
@@ -335,14 +368,13 @@ fn run_api(args: &ApiArgs) -> Result<ExitCode> {
         eprintln!("symbol graphs kept at {}", symbols_dir.display());
     }
 
-    Ok(ExitCode::SUCCESS)
+    Ok(model)
 }
 
-fn infer_format(path: &Path) -> Format {
+fn infer_doc_format(path: &Path) -> DocFormat {
     match path.extension().and_then(|s| s.to_str()) {
-        Some("yaml") | Some("yml") => Format::Yaml,
-        Some("html") | Some("htm") => Format::Html,
-        _ => Format::Md,
+        Some("html") | Some("htm") => DocFormat::Html,
+        _ => DocFormat::Md,
     }
 }
 
