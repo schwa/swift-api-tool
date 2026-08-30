@@ -404,15 +404,18 @@ render_md_split (main.rs:887-913) clones each top-level SymbolNode, extension me
 ## 9: walk() collects the entire .build tree before filtering
 
 +++
-status: open
+status: closed
 priority: low
 kind: enhancement
 labels: effort:s
 created: 2026-08-30T15:23:27Z
-updated: 2026-08-30T15:28:06Z
+updated: 2026-08-30T15:29:38Z
+closed: 2026-08-30T15:29:38Z
 +++
 
 walk() (main.rs:505) recursively collects every file under .build into a Vec<PathBuf>; the caller then filters for *.symbols.json. On large build directories this allocates far more than needed. Filtering during traversal or returning an iterator would avoid it. (rust-skills: perf-iter-lazy)
+
+- `2026-08-30T15:29:38Z`: walk() replaced with a callback-based visit_files that filters during traversal instead of collecting the whole .build tree.
 
 ---
 

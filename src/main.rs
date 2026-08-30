@@ -470,17 +470,18 @@ fn generate_symbol_graphs(
 
     let build_dir = pkg_path.join(".build");
     let mut found_modules: std::collections::BTreeSet<String> = Default::default();
-    for entry in walk(&build_dir) {
+    visit_files(&build_dir, &mut |entry| {
         let file_name = entry.file_name().and_then(|s| s.to_str()).unwrap_or("");
         let is_symbols = file_name.ends_with(".symbols.json");
         let under_symbolgraph = entry.components().any(|c| c.as_os_str() == "symbolgraph");
         if is_symbols && under_symbolgraph {
-            fs::copy(&entry, out_dir.join(file_name))?;
+            fs::copy(entry, out_dir.join(file_name))?;
             let stem = file_name.trim_end_matches(".symbols.json");
             let module = stem.split('@').next().unwrap_or(stem);
             found_modules.insert(module.to_string());
         }
-    }
+        Ok(())
+    })?;
 
     let missing: Vec<&String> = library_targets
         .iter()
@@ -501,8 +502,8 @@ fn generate_symbol_graphs(
     Ok(out_dir)
 }
 
-fn walk(root: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
+/// Depth-first file traversal without collecting the whole tree.
+fn visit_files(root: &Path, visit: &mut dyn FnMut(&Path) -> Result<()>) -> Result<()> {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let Ok(rd) = fs::read_dir(&dir) else { continue };
@@ -511,11 +512,11 @@ fn walk(root: &Path) -> Vec<PathBuf> {
             if p.is_dir() {
                 stack.push(p);
             } else {
-                out.push(p);
+                visit(&p)?;
             }
         }
     }
-    out
+    Ok(())
 }
 
 // --- Build the tree model from symbol graph files ---
