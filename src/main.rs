@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 mod diff;
+mod graph;
 mod html;
+use graph::GraphArgs;
 use html::render_html;
 
 /// Extract public API symbols from a Swift package into a single file.
@@ -42,6 +44,8 @@ struct Cli {
 enum Commands {
     /// Compare two YAML API snapshots and print a semantic diff.
     Diff(DiffArgs),
+    /// Generate a Swift package dependency graph.
+    Graph(GraphArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -224,8 +228,13 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
-    if let Some(Commands::Diff(args)) = cli.command {
-        return diff::run_diff(&args);
+    match &cli.command {
+        Some(Commands::Diff(args)) => return diff::run_diff(args),
+        Some(Commands::Graph(args)) => {
+            graph::run(args)?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        None => {}
     }
 
     let pkg_path = cli

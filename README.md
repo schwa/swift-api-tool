@@ -38,6 +38,17 @@ swift-api-tool . -o public-api.yaml
 swift-api-tool . -o public-api.html
 ```
 
+### Package dependency graphs
+
+Generate a Graphviz dependency graph from `swift package describe`:
+
+```sh
+swift-api-tool graph . -o package.dot
+swift-api-tool graph . -o package.svg --skip-test-targets
+```
+
+The output extension selects DOT, SVG, or PNG. SVG and PNG output require Graphviz's `dot` command. Use `--skip-product-dependencies` to omit external package products.
+
 ## What's included
 
 - Every Swift library target exposed by a `library` product.

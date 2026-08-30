@@ -120,12 +120,13 @@ the exit code semantics:
 ## 3: Package dependency graph output is missing
 
 +++
-status: open
+status: closed
 priority: medium
 kind: feature
 labels: effort:m
 created: 2026-08-30T14:22:42Z
-updated: 2026-08-30T14:29:14Z
+updated: 2026-08-30T14:34:19Z
+closed: 2026-08-30T14:34:19Z
 +++
 
 The app cannot generate a dependency graph for a Swift package. The sibling `../spm_to_graph/` tool provides this capability but currently requires users to install and run a separate executable.
@@ -141,6 +142,8 @@ The missing behavior includes:
 ## Proposed fix (per user)
 
 Merge the functionality from `../spm_to_graph/` into `swift-api-tool` and expose it through this app rather than retaining a separate tool.
+
+- `2026-08-30T14:34:19Z`: Implemented the graph subcommand with DOT, SVG, and PNG output plus target and product dependency filters.
 
 ---
 
