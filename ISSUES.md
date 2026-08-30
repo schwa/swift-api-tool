@@ -230,12 +230,13 @@ This overlaps with #5. Share package discovery and source parsing if both featur
 ## 5: Documentation-comment Markdown generation is missing
 
 +++
-status: open
+status: closed
 priority: medium
 kind: feature
 labels: effort:xl
 created: 2026-08-30T14:22:56Z
-updated: 2026-08-30T14:44:51Z
+updated: 2026-08-30T15:07:31Z
+closed: 2026-08-30T15:07:31Z
 +++
 
 The app does not attach Swift documentation comments to API declarations or generate documentation-focused Markdown. Existing symbol-graph output captures signatures and hierarchy, but its model and renderers discard documentation text and source locations.
@@ -342,5 +343,6 @@ Embed the useful behavior from archived `HeaderDocToMarkdown` in `swift-api-tool
 
 - `2026-08-30T14:23:29Z`: Related to #4: both need source-oriented Swift declaration extraction and may share parsing infrastructure.
 - `2026-08-30T14:44:51Z`: Implementation note: use a hybrid approach. Keep symbol graphs authoritative for compiler-visible public/open API documentation and source locations; extend the existing decoder and output models first. Use tree-sitter-swift only for source-oriented behavior that symbol graphs do not cover, especially --include-private, per-file grouping, and leading /// or /** */ comment association. Share the Rust declaration-tree/JSON layer proposed for #4. Tree-sitter cannot provide compiler-resolved visibility, inferred types, or conformances, so those should not replace symbol-graph data. Add fixtures for trivia attachment, attributes, macros, constrained extensions, overloads, and ERROR-node recovery.
+- `2026-08-30T15:07:31Z`: Implemented via symbol-graph pipeline: doc comments and source locations decoded, preserved in YAML, rendered in Markdown/HTML, plus --report-undocumented.
 
 ---

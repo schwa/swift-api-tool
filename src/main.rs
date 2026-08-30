@@ -38,6 +38,10 @@ struct Cli {
     /// Keep the generated symbol graph directory (for debugging).
     #[arg(long)]
     keep_symbols: bool,
+
+    /// List public symbols that lack documentation comments on stderr.
+    #[arg(long)]
+    report_undocumented: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -140,6 +144,32 @@ struct Symbol {
     declaration_fragments: Vec<Fragment>,
     #[serde(default, rename = "swiftExtension")]
     swift_extension: Option<SwiftExtension>,
+    #[serde(default, rename = "docComment")]
+    doc_comment: Option<DocComment>,
+    #[serde(default)]
+    location: Option<Location>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DocComment {
+    #[serde(default)]
+    lines: Vec<DocLine>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DocLine {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Location {
+    uri: String,
+    position: Position,
+}
+
+#[derive(Debug, Deserialize)]
+struct Position {
+    line: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,6 +239,10 @@ pub struct ExtensionGroup {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SymbolNode {
     pub decl: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub members: Vec<SymbolNode>,
 }
@@ -259,8 +293,9 @@ fn run() -> Result<ExitCode> {
     let mut modules = Vec::new();
     let mut sorted_targets = library_targets.clone();
     sorted_targets.sort();
+    let source_prefix = format!("file://{}/", pkg_path.display());
     for module in &sorted_targets {
-        modules.push(build_module_model(module, &symbols_dir)?);
+        modules.push(build_module_model(module, &symbols_dir, &source_prefix)?);
     }
 
     let model = PackageModel {
@@ -279,6 +314,9 @@ fn run() -> Result<ExitCode> {
         .with_context(|| format!("writing {}", cli.output.display()))?;
     eprintln!("wrote {}", cli.output.display());
 
+    if cli.report_undocumented {
+        report_undocumented(&model);
+    }
     if !cli.keep_symbols {
         let _ = fs::remove_dir_all(&symbols_dir);
     } else {
@@ -414,7 +452,11 @@ fn walk(root: &Path) -> Vec<PathBuf> {
 
 // --- Build the tree model from symbol graph files ---
 
-fn build_module_model(module: &str, symbols_dir: &Path) -> Result<ModuleModel> {
+fn build_module_model(
+    module: &str,
+    symbols_dir: &Path,
+    source_prefix: &str,
+) -> Result<ModuleModel> {
     let mut own_graph: Option<SymbolGraph> = None;
     let mut ext_graphs: BTreeMap<String, SymbolGraph> = BTreeMap::new();
 
@@ -437,13 +479,15 @@ fn build_module_model(module: &str, symbols_dir: &Path) -> Result<ModuleModel> {
         }
     }
 
-    let symbols = own_graph.map(graph_to_nodes).unwrap_or_default();
+    let symbols = own_graph
+        .map(|g| graph_to_nodes(g, source_prefix))
+        .unwrap_or_default();
 
     let extensions = ext_graphs
         .into_iter()
         .map(|(extended_module, g)| ExtensionGroup {
             extended_module,
-            symbols: ext_graph_to_nodes(g),
+            symbols: ext_graph_to_nodes(g, source_prefix),
         })
         .collect();
 
@@ -458,7 +502,7 @@ fn build_module_model(module: &str, symbols_dir: &Path) -> Result<ModuleModel> {
 /// is not emitted as a symbol. Group top-level symbols by their first path
 /// component (the extended type) and wrap them in a synthesized
 /// `extension <Type>` node.
-fn ext_graph_to_nodes(graph: SymbolGraph) -> Vec<SymbolNode> {
+fn ext_graph_to_nodes(graph: SymbolGraph, source_prefix: &str) -> Vec<SymbolNode> {
     // Filter out synthesized symbols.
     let symbols: Vec<&Symbol> = graph
         .symbols
@@ -510,19 +554,21 @@ fn ext_graph_to_nodes(graph: SymbolGraph) -> Vec<SymbolNode> {
         .into_iter()
         .map(|(ty, members)| SymbolNode {
             decl: format!("extension {}", ty),
+            doc: None,
+            source: None,
             members: members
                 .into_iter()
-                .map(|s| symbol_to_node(s, &children_of))
+                .map(|s| symbol_to_node(s, &children_of, source_prefix))
                 .collect(),
         })
         .collect();
     for s in ungrouped {
-        out.push(symbol_to_node(s, &children_of));
+        out.push(symbol_to_node(s, &children_of, source_prefix));
     }
     out
 }
 
-fn graph_to_nodes(graph: SymbolGraph) -> Vec<SymbolNode> {
+fn graph_to_nodes(graph: SymbolGraph, source_prefix: &str) -> Vec<SymbolNode> {
     // Filter out synthesized symbols.
     let symbols: Vec<&Symbol> = graph
         .symbols
@@ -562,24 +608,58 @@ fn graph_to_nodes(graph: SymbolGraph) -> Vec<SymbolNode> {
 
     roots
         .into_iter()
-        .map(|s| symbol_to_node(s, &children_of))
+        .map(|s| symbol_to_node(s, &children_of, source_prefix))
         .collect()
 }
 
-fn symbol_to_node(sym: &Symbol, children_of: &HashMap<&str, Vec<&Symbol>>) -> SymbolNode {
+fn symbol_to_node(
+    sym: &Symbol,
+    children_of: &HashMap<&str, Vec<&Symbol>>,
+    source_prefix: &str,
+) -> SymbolNode {
     let members = children_of
         .get(sym.identifier.precise.as_str())
         .map(|kids| {
             kids.iter()
-                .map(|k| symbol_to_node(k, children_of))
+                .map(|k| symbol_to_node(k, children_of, source_prefix))
                 .collect()
         })
         .unwrap_or_default();
 
     SymbolNode {
         decl: render_declaration(sym),
+        doc: render_doc(sym),
+        source: render_source(sym, source_prefix),
         members,
     }
+}
+
+fn render_doc(sym: &Symbol) -> Option<String> {
+    let doc = sym.doc_comment.as_ref()?;
+    let text = doc
+        .lines
+        .iter()
+        .map(|l| l.text.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+/// Package-relative `path:line` (1-based); absolute path if outside the package.
+fn render_source(sym: &Symbol, source_prefix: &str) -> Option<String> {
+    let location = sym.location.as_ref()?;
+    let path = location
+        .uri
+        .strip_prefix(source_prefix)
+        .or_else(|| location.uri.strip_prefix("file://"))
+        .unwrap_or(&location.uri);
+    Some(format!("{}:{}", path, location.position.line + 1))
 }
 
 fn sort_symbols(v: &mut Vec<&Symbol>) {
@@ -704,7 +784,229 @@ fn render_md_symbol(sym: &SymbolNode, depth: usize, out: &mut String) {
         out.push('\n');
     }
     out.push_str("```\n\n");
+    if let Some(doc) = &sym.doc {
+        out.push_str(doc);
+        out.push_str("\n\n");
+    }
+    if let Some(source) = &sym.source {
+        out.push_str(&format!("<sub>Defined at `{}`</sub>\n\n", source));
+    }
     for child in &sym.members {
         render_md_symbol(child, depth + 1, out);
+    }
+}
+
+// --- Undocumented symbol report ---
+
+fn report_undocumented(model: &PackageModel) {
+    let mut undocumented: Vec<String> = Vec::new();
+    for module in &model.modules {
+        collect_undocumented(&module.symbols, &module.name, &mut undocumented);
+        for ext in &module.extensions {
+            let prefix = format!("{} (extensions to {})", module.name, ext.extended_module);
+            collect_undocumented(&ext.symbols, &prefix, &mut undocumented);
+        }
+    }
+    if undocumented.is_empty() {
+        eprintln!("all public symbols are documented");
+        return;
+    }
+    eprintln!("undocumented public symbols ({}):", undocumented.len());
+    for entry in &undocumented {
+        eprintln!("  {}", entry);
+    }
+}
+
+fn collect_undocumented(nodes: &[SymbolNode], prefix: &str, out: &mut Vec<String>) {
+    for node in nodes {
+        let first_line = node.decl.lines().next().unwrap_or(&node.decl);
+        // Synthesized `extension T` wrappers have no doc or location of their own.
+        let synthesized_wrapper = node.source.is_none() && first_line.starts_with("extension ");
+        if node.doc.is_none() && !synthesized_wrapper {
+            match &node.source {
+                Some(source) => out.push(format!("{}: {} ({})", prefix, first_line, source)),
+                None => out.push(format!("{}: {}", prefix, first_line)),
+            }
+        }
+        let child_prefix = format!("{}: {}", prefix, symbol_short_name(first_line));
+        collect_undocumented(&node.members, &child_prefix, out);
+    }
+}
+
+/// Trims a declaration line down to a compact `kind Name` label for report paths.
+fn symbol_short_name(decl_line: &str) -> String {
+    const MODIFIERS: &[&str] = &[
+        "public",
+        "open",
+        "final",
+        "static",
+        "mutating",
+        "nonmutating",
+        "override",
+        "required",
+        "convenience",
+        "indirect",
+    ];
+    let mut tokens = decl_line
+        .split_whitespace()
+        .skip_while(|t| t.starts_with('@'))
+        .skip_while(|t| MODIFIERS.contains(t));
+    let kind = tokens.next().unwrap_or("");
+    let name = tokens.next().unwrap_or("");
+    let name = name.split(['(', '<', ':']).next().unwrap_or(name);
+    format!("{} {}", kind, name).trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn symbol(doc_lines: &[&str], location: Option<(&str, u32)>) -> Symbol {
+        Symbol {
+            identifier: Identifier {
+                precise: "s:test".to_string(),
+            },
+            kind: Kind {
+                identifier: "swift.struct".to_string(),
+            },
+            path_components: vec!["Widget".to_string()],
+            access_level: "public".to_string(),
+            declaration_fragments: vec![],
+            swift_extension: None,
+            doc_comment: if doc_lines.is_empty() {
+                None
+            } else {
+                Some(DocComment {
+                    lines: doc_lines
+                        .iter()
+                        .map(|t| DocLine {
+                            text: t.to_string(),
+                        })
+                        .collect(),
+                })
+            },
+            location: location.map(|(uri, line)| Location {
+                uri: uri.to_string(),
+                position: Position { line },
+            }),
+        }
+    }
+
+    #[test]
+    fn doc_lines_join_and_trim() {
+        let s = symbol(&["A widget.", "", "Use it. "], None);
+        assert_eq!(render_doc(&s), Some("A widget.\n\nUse it.".to_string()));
+    }
+
+    #[test]
+    fn empty_doc_is_none() {
+        assert_eq!(render_doc(&symbol(&[], None)), None);
+        assert_eq!(render_doc(&symbol(&["", "  "], None)), None);
+    }
+
+    #[test]
+    fn source_is_package_relative_and_one_based() {
+        let s = symbol(&[], Some(("file:///pkg/Sources/M/File.swift", 3)));
+        assert_eq!(
+            render_source(&s, "file:///pkg/"),
+            Some("Sources/M/File.swift:4".to_string())
+        );
+    }
+
+    #[test]
+    fn source_outside_package_keeps_absolute_path() {
+        let s = symbol(&[], Some(("file:///elsewhere/File.swift", 0)));
+        assert_eq!(
+            render_source(&s, "file:///pkg/"),
+            Some("/elsewhere/File.swift:1".to_string())
+        );
+    }
+
+    #[test]
+    fn yaml_without_doc_fields_still_parses() {
+        let yaml = "\
+package: P
+access_level: public
+modules:
+- name: M
+  symbols:
+  - decl: public struct S
+    members:
+    - decl: 'public var x: Int'
+";
+        let model: PackageModel = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(model.modules[0].symbols[0].doc, None);
+        assert_eq!(model.modules[0].symbols[0].source, None);
+    }
+
+    #[test]
+    fn yaml_omits_empty_doc_fields() {
+        let model = PackageModel {
+            package: "P".to_string(),
+            access_level: "public".to_string(),
+            modules: vec![ModuleModel {
+                name: "M".to_string(),
+                symbols: vec![SymbolNode {
+                    decl: "public struct S".to_string(),
+                    doc: None,
+                    source: None,
+                    members: vec![],
+                }],
+                extensions: vec![],
+            }],
+        };
+        let yaml = serde_yaml::to_string(&model).unwrap();
+        assert!(!yaml.contains("doc:"));
+        assert!(!yaml.contains("source:"));
+    }
+
+    #[test]
+    fn markdown_renders_doc_and_source() {
+        let node = SymbolNode {
+            decl: "public struct S".to_string(),
+            doc: Some("A thing.".to_string()),
+            source: Some("Sources/M/S.swift:10".to_string()),
+            members: vec![],
+        };
+        let mut out = String::new();
+        render_md_symbol(&node, 3, &mut out);
+        assert!(out.contains("A thing.\n\n"));
+        assert!(out.contains("<sub>Defined at `Sources/M/S.swift:10`</sub>"));
+    }
+
+    #[test]
+    fn undocumented_report_skips_synthesized_extension_wrappers() {
+        let nodes = vec![SymbolNode {
+            decl: "extension Sequence".to_string(),
+            doc: None,
+            source: None,
+            members: vec![SymbolNode {
+                decl: "public func sorted() -> [Element]".to_string(),
+                doc: None,
+                source: Some("Sources/M/Ext.swift:5".to_string()),
+                members: vec![],
+            }],
+        }];
+        let mut out = Vec::new();
+        collect_undocumented(&nodes, "M", &mut out);
+        assert_eq!(
+            out,
+            vec![
+                "M: extension Sequence: public func sorted() -> [Element] (Sources/M/Ext.swift:5)"
+            ]
+        );
+    }
+
+    #[test]
+    fn documented_symbols_not_reported() {
+        let nodes = vec![SymbolNode {
+            decl: "public struct S".to_string(),
+            doc: Some("Documented.".to_string()),
+            source: None,
+            members: vec![],
+        }];
+        let mut out = Vec::new();
+        collect_undocumented(&nodes, "M", &mut out);
+        assert!(out.is_empty());
     }
 }

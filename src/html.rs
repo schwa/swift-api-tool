@@ -104,22 +104,25 @@ pub fn render_html(model: &PackageModel) -> String {
 
 fn render_node(node: &SymbolNode, id: &str, out: &mut String) {
     let name = symbol_name(&node.decl);
+    let detail = render_detail(node);
     if node.members.is_empty() {
         writeln!(
             out,
-            "<div class=\"sym leaf\" id=\"{id}\" data-name=\"{name_attr}\"><pre><code>{decl}</code></pre></div>",
+            "<div class=\"sym leaf\" id=\"{id}\" data-name=\"{name_attr}\"><pre><code>{decl}</code></pre>{detail}</div>",
             id = html_escape(id),
             name_attr = html_escape(&name.to_lowercase()),
-            decl = html_escape(node.decl.trim_end())
+            decl = html_escape(node.decl.trim_end()),
+            detail = detail
         )
         .ok();
     } else {
         writeln!(
             out,
-            "<details class=\"sym\" id=\"{id}\" data-name=\"{name_attr}\" open><summary><pre><code>{decl}</code></pre></summary><div class=\"children\">",
+            "<details class=\"sym\" id=\"{id}\" data-name=\"{name_attr}\" open><summary><pre><code>{decl}</code></pre></summary>{detail}<div class=\"children\">",
             id = html_escape(id),
             name_attr = html_escape(&name.to_lowercase()),
-            decl = html_escape(node.decl.trim_end())
+            decl = html_escape(node.decl.trim_end()),
+            detail = detail
         )
         .ok();
         for (i, child) in node.members.iter().enumerate() {
@@ -127,6 +130,17 @@ fn render_node(node: &SymbolNode, id: &str, out: &mut String) {
         }
         writeln!(out, "</div></details>").ok();
     }
+}
+
+fn render_detail(node: &SymbolNode) -> String {
+    let mut out = String::new();
+    if let Some(doc) = &node.doc {
+        write!(out, "<div class=\"doc\">{}</div>", html_escape(doc)).ok();
+    }
+    if let Some(source) = &node.source {
+        write!(out, "<div class=\"source\">{}</div>", html_escape(source)).ok();
+    }
+    out
 }
 
 fn render_nav_nodes(nodes: &[SymbolNode], parent_id: &str, out: &mut String) {
@@ -386,6 +400,18 @@ details.sym > summary::before {
 }
 details.sym[open] > summary::before { content: "▾ "; }
 .children { margin-left: 12px; margin-top: 4px; }
+.sym .doc {
+  margin: 4px 0 2px;
+  padding: 2px 8px;
+  color: #444;
+  white-space: pre-wrap;
+}
+.sym .source {
+  margin: 0 0 4px;
+  padding: 0 8px;
+  color: #999;
+  font-size: 11px;
+}
 .sym:target > pre, .sym:target > summary > pre {
   background: #fff8c5;
 }

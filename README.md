@@ -58,10 +58,14 @@ The output extension selects DOT, SVG, or PNG. SVG and PNG output require Graphv
   preserved in declarations.
 - Cross-module extensions are grouped under a synthesized
   `extension <Type>` node.
+- Doc comments (`///` and `/** */`) and package-relative `path:line` source
+  locations, attached to each symbol in every output format.
+
+Pass `--report-undocumented` to also list public symbols without doc comments
+on stderr (the exit status is unaffected).
 
 ## What's not included
 
-- Doc comments.
 - Symbols below `public` (use `--min-access-level` — not yet implemented
   for non-public levels).
 - Same-module extensions as distinct groups (Swift merges these into the
@@ -80,6 +84,8 @@ Commit a `public-api.yaml` snapshot to your repo, then in CI:
 The `diff` subcommand parses both snapshots semantically and prints a
 colorized, grouped report of **added / removed / changed** symbols.
 It exits non-zero when there are differences.
+Doc-comment and source-location changes never count as API differences,
+and snapshots created before those fields existed still diff cleanly.
 
 Options:
 
