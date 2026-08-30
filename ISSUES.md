@@ -150,12 +150,13 @@ Merge the functionality from `../spm_to_graph/` into `swift-api-tool` and expose
 ## 4: Source-oriented Swift package table of contents is missing
 
 +++
-status: open
+status: closed
 priority: medium
 kind: feature
 labels: effort:l
 created: 2026-08-30T14:22:42Z
-updated: 2026-08-30T14:44:51Z
+updated: 2026-08-30T15:13:24Z
+closed: 2026-08-30T15:13:24Z
 +++
 
 The app cannot generate a source-oriented table of contents for a Swift package. This differs from the existing API snapshot: the snapshot is compiler-derived, public-API-oriented, and grouped by module/type, while this feature is grouped by target/source file and includes declaration line numbers and non-public declarations.
@@ -224,6 +225,7 @@ This overlaps with #5. Share package discovery and source parsing if both featur
 
 - `2026-08-30T14:23:29Z`: Related to #5: both need source-oriented Swift declaration extraction and may share parsing infrastructure.
 - `2026-08-30T14:44:51Z`: Implementation note: tree-sitter-swift is a good fit for this source-oriented feature. Use the maintained alex-pinkus/tree-sitter-swift grammar from Rust to extract declaration kinds, names, explicit access modifiers, source line ranges, and extension children. Preserve signatures by slicing the original source using node byte ranges, then normalize whitespace, rather than rebuilding text from syntax nodes. Treat parse ERROR nodes defensively and add fixtures for attributes, macros, failable initializers, complex parameters, constrained extensions, and current Swift syntax. A shared Rust declaration-tree/JSON model can also support the source-only parts of #5.
+- `2026-08-30T15:13:24Z`: Wontfix: doc output now carries path:line source locations for public symbols; remaining unique value (non-public declarations, per-file grouping) does not justify a second parsing pipeline. Full reproduction detail preserved in the description and the archived swift-toc source.
 
 ---
 
@@ -344,5 +346,20 @@ Embed the useful behavior from archived `HeaderDocToMarkdown` in `swift-api-tool
 - `2026-08-30T14:23:29Z`: Related to #4: both need source-oriented Swift declaration extraction and may share parsing infrastructure.
 - `2026-08-30T14:44:51Z`: Implementation note: use a hybrid approach. Keep symbol graphs authoritative for compiler-visible public/open API documentation and source locations; extend the existing decoder and output models first. Use tree-sitter-swift only for source-oriented behavior that symbol graphs do not cover, especially --include-private, per-file grouping, and leading /// or /** */ comment association. Share the Rust declaration-tree/JSON layer proposed for #4. Tree-sitter cannot provide compiler-resolved visibility, inferred types, or conformances, so those should not replace symbol-graph data. Add fixtures for trivia attachment, attributes, macros, constrained extensions, overloads, and ERROR-node recovery.
 - `2026-08-30T15:07:31Z`: Implemented via symbol-graph pipeline: doc comments and source locations decoded, preserved in YAML, rendered in Markdown/HTML, plus --report-undocumented.
+
+---
+
+## 6: Single-file output does not scale to large packages
+
++++
+status: new
+priority: medium
+kind: enhancement
+created: 2026-08-30T15:07:37Z
++++
+
+All output formats write one file. For a large package (e.g. MetalSprockets, ~7,300 lines of Markdown) a single document is hard to navigate, review, and link into.
+
+There is no way to write output as a directory hierarchy, such as one file per module, per type, or per source-file grouping, with an index file linking the pieces. This affects Markdown most, but YAML snapshots and HTML would also benefit from a split layout for very large APIs.
 
 ---
