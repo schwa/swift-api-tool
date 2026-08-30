@@ -12,13 +12,30 @@ mod html;
 use graph::GraphArgs;
 use html::render_html;
 
-/// Extract public API symbols from a Swift package into a single file.
+/// Extract the public API surface of a Swift package.
 #[derive(Parser, Debug)]
 #[command(version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
+    /// Default subcommand: `api`.
+    #[command(flatten)]
+    api: ApiArgs,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Extract the public API into a Markdown, YAML, or HTML file.
+    Api(ApiArgs),
+    /// Compare two YAML API snapshots and print a semantic diff.
+    Diff(DiffArgs),
+    /// Generate a Swift package dependency graph.
+    Graph(GraphArgs),
+}
+
+#[derive(Parser, Debug)]
+struct ApiArgs {
     /// Path to the Swift package (directory containing Package.swift).
     #[arg(default_value = ".")]
     package_path: PathBuf,
@@ -42,14 +59,6 @@ struct Cli {
     /// List public symbols that lack documentation comments on stderr.
     #[arg(long)]
     report_undocumented: bool,
-}
-
-#[derive(Subcommand, Debug)]
-enum Commands {
-    /// Compare two YAML API snapshots and print a semantic diff.
-    Diff(DiffArgs),
-    /// Generate a Swift package dependency graph.
-    Graph(GraphArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -263,24 +272,27 @@ fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Diff(args)) => return diff::run_diff(args),
+        Some(Commands::Api(args)) => run_api(args),
+        Some(Commands::Diff(args)) => diff::run_diff(args),
         Some(Commands::Graph(args)) => {
             graph::run(args)?;
-            return Ok(ExitCode::SUCCESS);
+            Ok(ExitCode::SUCCESS)
         }
-        None => {}
+        None => run_api(&cli.api),
     }
+}
 
-    let pkg_path = cli
+fn run_api(args: &ApiArgs) -> Result<ExitCode> {
+    let pkg_path = args
         .package_path
         .canonicalize()
-        .with_context(|| format!("resolving {}", cli.package_path.display()))?;
+        .with_context(|| format!("resolving {}", args.package_path.display()))?;
 
     if !pkg_path.join("Package.swift").exists() {
         bail!("no Package.swift at {}", pkg_path.display());
     }
 
-    let format = cli.format.unwrap_or_else(|| infer_format(&cli.output));
+    let format = args.format.unwrap_or_else(|| infer_format(&args.output));
 
     let description = describe_package(&pkg_path)?;
     let library_targets = library_target_names(&description);
@@ -288,7 +300,7 @@ fn run() -> Result<ExitCode> {
         bail!("no public library targets found");
     }
 
-    let symbols_dir = generate_symbol_graphs(&pkg_path, &library_targets, &cli.min_access_level)?;
+    let symbols_dir = generate_symbol_graphs(&pkg_path, &library_targets, &args.min_access_level)?;
 
     let mut modules = Vec::new();
     let mut sorted_targets = library_targets.clone();
@@ -300,7 +312,7 @@ fn run() -> Result<ExitCode> {
 
     let model = PackageModel {
         package: description.name.clone(),
-        access_level: cli.min_access_level.clone(),
+        access_level: args.min_access_level.clone(),
         modules,
     };
 
@@ -310,14 +322,14 @@ fn run() -> Result<ExitCode> {
         Format::Html => render_html(&model),
     };
 
-    fs::write(&cli.output, rendered)
-        .with_context(|| format!("writing {}", cli.output.display()))?;
-    eprintln!("wrote {}", cli.output.display());
+    fs::write(&args.output, rendered)
+        .with_context(|| format!("writing {}", args.output.display()))?;
+    eprintln!("wrote {}", args.output.display());
 
-    if cli.report_undocumented {
+    if args.report_undocumented {
         report_undocumented(&model);
     }
-    if !cli.keep_symbols {
+    if !args.keep_symbols {
         let _ = fs::remove_dir_all(&symbols_dir);
     } else {
         eprintln!("symbol graphs kept at {}", symbols_dir.display());
