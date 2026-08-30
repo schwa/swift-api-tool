@@ -116,3 +116,84 @@ the exit code semantics:
 - `2026-04-22T01:11:21Z`: Implemented via new 'swift-api-tool diff' subcommand with --allow-additive mode.
 
 ---
+
+## 3: Package dependency graph output is missing
+
++++
+status: open
+priority: medium
+kind: feature
+labels: effort:m
+created: 2026-08-30T14:22:42Z
+updated: 2026-08-30T14:29:14Z
++++
+
+The app cannot generate a dependency graph for a Swift package. The sibling `../spm_to_graph/` tool provides this capability but currently requires users to install and run a separate executable.
+
+The missing behavior includes:
+
+- Reading package targets and their target and product dependencies.
+- Optionally excluding test targets.
+- Optionally excluding external product dependencies.
+- Writing Graphviz DOT directly.
+- Rendering SVG or PNG through Graphviz based on the requested output extension.
+
+## Proposed fix (per user)
+
+Merge the functionality from `../spm_to_graph/` into `swift-api-tool` and expose it through this app rather than retaining a separate tool.
+
+---
+
+## 4: Source-oriented Swift package table of contents is missing
+
++++
+status: open
+priority: medium
+kind: feature
+labels: effort:l
+created: 2026-08-30T14:22:42Z
+updated: 2026-08-30T14:29:14Z
++++
+
+The app cannot generate a source-oriented table of contents for a Swift package. The sibling `../swift-toc/` tool provides this capability but currently requires users to install and run a separate executable.
+
+The missing output discovers Swift source files by target, parses their declarations, preserves source line numbers, sorts declarations by kind and name, and emits Markdown or JSON. It covers top-level protocols, structs, classes, actors, enums, extensions, type aliases, functions, variables, initializers, subscripts, and macros, including members declared in extensions and explicit access levels.
+
+## Proposed fix (per user)
+
+Merge the functionality from `../swift-toc/` into `swift-api-tool` and expose it through this app rather than retaining a separate tool.
+
+- `2026-08-30T14:23:29Z`: Related to #5: both need source-oriented Swift declaration extraction and may share parsing infrastructure.
+
+---
+
+## 5: Documentation-comment Markdown generation is missing
+
++++
+status: open
+priority: medium
+kind: feature
+labels: effort:xl
+created: 2026-08-30T14:22:56Z
+updated: 2026-08-30T14:29:14Z
++++
+
+The app cannot generate API documentation from Swift documentation comments. The sibling `../HeaderDocToMarkdown/` tool provides this capability but currently requires users to install and run a separate executable.
+
+The missing behavior includes:
+
+- Extracting `///` comments and declaration signatures from Swift package sources.
+- Generating one Markdown document per target or exporting the extracted model as JSON.
+- Grouping types and members by declaration kind.
+- Merging extension members into types in the same target.
+- Preserving conformances, where-clause constraints, access levels, and source locations.
+- Filtering to public API by default, with an option to include non-public declarations.
+- Reporting declarations that lack documentation.
+
+## Proposed fix (per user)
+
+Merge the functionality from `../HeaderDocToMarkdown/` into `swift-api-tool` and expose it through this app rather than retaining a separate tool.
+
+- `2026-08-30T14:23:29Z`: Related to #4: both need source-oriented Swift declaration extraction and may share parsing infrastructure.
+
+---
