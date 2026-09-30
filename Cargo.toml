@@ -1,6 +1,6 @@
 [package]
 name = "swift-api-tool"
-version = "0.2.0"
+version = "0.2.3"
 edition = "2021"
 authors = ["Jonathan Wight <jwight@mac.com>"]
 description = "Swift package API tools: YAML API snapshots, semantic API diffs, Markdown/HTML documentation, and dependency graphs."
